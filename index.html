@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BetWing</title>
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+
+  <div class="particles" id="particles"></div>
+
+  <div class="container">
+    <div class="logo">BetWing</div>
+    <div class="coming-soon"><span>C</span>oming <span>S</span>oon!</div>
+    <p class="tagline">Something big is on the way</p>
+    <div class="divider"></div>
+    <button class="login-btn" onclick="openModal()">Login</button>
+  </div>
+
+  <!-- Login Modal -->
+  <div class="modal-overlay" id="modalOverlay" onclick="closeOnOverlay(event)">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+      <div class="modal-logo">BetWing</div>
+      <p class="modal-subtitle">Enter your Roblox username to continue</p>
+
+      <label for="robloxUsername">Roblox Username</label>
+      <input type="text" id="robloxUsername" placeholder="e.g. CoolPlayer123" autocomplete="off" oninput="updateBio()" />
+
+      <div class="bio-section">
+        <div class="bio-label-row">
+          <label>Roblox Bio</label>
+          <button class="refresh-btn" onclick="refreshBio()">Refresh</button>
+        </div>
+        <div class="bio-wrapper">
+          <textarea class="bio-box" id="generatedBio" rows="2" readonly></textarea>
+          <button class="copy-btn" id="copyBtn" onclick="copyBio()">Copy</button>
+        </div>
+      </div>
+
+      <button class="submit-btn" onclick="handleLogin()">Login</button>
+    </div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>
