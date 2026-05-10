@@ -14,8 +14,19 @@ try {
     });
   }
   db = admin.firestore();
+  db.settings({ ignoreUndefinedProperties: true });
 } catch (e) {
   initError = e.message;
+}
+
+// Firestore write with a hard timeout
+function firestoreWrite(ref, data) {
+  return Promise.race([
+    ref.set ? ref.set(data) : ref.add(data),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Firestore timeout")), 8000)
+    ),
+  ]);
 }
 
 export default async function handler(req, res) {
@@ -25,21 +36,6 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // ── NEW: log every request hit to Firestore ──────────────────────────────
-  if (db) {
-    try {
-      await db.collection("_request_log").add({
-        method:    req.method,
-        url:       req.url,
-        headers:   JSON.stringify(req.headers),
-        body:      JSON.stringify(req.body ?? {}),
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    } catch (_) {}  // never block the real response
-  }
-  // ────────────────────────────────────────────────────────────────────────
-
-  // GET = health / ping check
   if (req.method === "GET") {
     return res.status(200).json({
       ok:         true,
@@ -58,7 +54,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: "Method not allowed" });
   }
 
-  // Auth
   const apiKey = req.headers["x-api-key"];
   if (!apiKey || apiKey !== process.env.API_SECRET_KEY) {
     return res.status(401).json({ success: false, error: "Unauthorized" });
@@ -72,7 +67,6 @@ export default async function handler(req, res) {
     });
   }
 
-  // Parse body (safe for both raw string and pre-parsed object)
   const rawBody = req.body ?? {};
   const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
   const { userId, partnerId, partnerName, itemsReceived, tradeId, timestamp } = body;
@@ -103,15 +97,20 @@ export default async function handler(req, res) {
   };
 
   try {
-    const userRef    = db.collection("trades").doc(String(userId));
-    const historyRef = userRef.collection("history");
+    const historyRef = db.collection("trades").doc(String(userId)).collection("history");
 
     let docRef;
     if (tradeId) {
       docRef = historyRef.doc(String(tradeId));
-      await docRef.set(record);
+      await Promise.race([
+        docRef.set(record),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore timeout")), 8000)),
+      ]);
     } else {
-      docRef = await historyRef.add(record);
+      docRef = await Promise.race([
+        historyRef.add(record),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore timeout")), 8000)),
+      ]);
     }
 
     return res.status(200).json({
