@@ -1,7 +1,7 @@
 import admin from "firebase-admin";
 
 // ── Firebase init ─────────────────────────────────────────────────────────────
-let dbReady = false;
+let db = null;
 let initError = null;
 
 try {
@@ -14,14 +14,11 @@ try {
       }),
     });
   }
-  dbReady = true;
+  db = admin.firestore();
 } catch (e) {
   initError = e.message;
 }
 
-const db = dbReady ? admin.firestore() : null;
-
-// ── Handler ───────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
@@ -33,7 +30,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     return res.status(200).json({
       ok: true,
-      firebase_ready: dbReady,
+      db_ready: db !== null,
       init_error: initError,
       env_check: {
         has_project_id:   !!process.env.FIREBASE_PROJECT_ID,
@@ -51,14 +48,14 @@ export default async function handler(req, res) {
   // Auth
   const apiKey = req.headers["x-api-key"];
   if (!apiKey || apiKey !== process.env.API_SECRET_KEY) {
-    return res.status(401).json({ success: false, error: "Unauthorized - bad API key" });
+    return res.status(401).json({ success: false, error: "Unauthorized" });
   }
 
-  // Firebase check
-  if (!dbReady || !db) {
+  // DB check
+  if (!db) {
     return res.status(500).json({
       success: false,
-      error: "Firebase not initialized",
+      error: "Firestore not initialized",
       detail: initError,
     });
   }
@@ -93,18 +90,21 @@ export default async function handler(req, res) {
   };
 
   try {
-    // Collection: trades → document: userId → subcollection: history → auto ID
-    const ref = db
-      .collection("trades")
-      .doc(String(userId))
-      .collection("history")
-      .doc(tradeId ? String(tradeId) : undefined);
+    const userRef = db.collection("trades").doc(String(userId));
+    const historyRef = userRef.collection("history");
 
-    await (tradeId ? ref.set(record) : db.collection("trades").doc(String(userId)).collection("history").add(record));
+    let docRef;
+    if (tradeId) {
+      docRef = historyRef.doc(String(tradeId));
+      await docRef.set(record);
+    } else {
+      docRef = await historyRef.add(record);
+    }
 
     return res.status(200).json({
-      success: true,
-      path: `trades/${userId}/history`,
+      success:  true,
+      tradeKey: docRef.id,
+      path:     `trades/${userId}/history/${docRef.id}`,
     });
   } catch (err) {
     return res.status(500).json({
