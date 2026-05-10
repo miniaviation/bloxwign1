@@ -1,7 +1,11 @@
 {
   "name": "betwing",
   "version": "1.0.0",
+  "type": "module",
   "engines": {
     "node": "24.x"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.1.0"
   }
 }
