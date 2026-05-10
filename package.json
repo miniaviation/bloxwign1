@@ -6,6 +6,7 @@
     "node": "24.x"
   },
   "dependencies": {
-    "firebase-admin": "^12.1.0"
+    "firebase-admin": "^12.1.0",
+    "google-auth-library": "^10.6.2"
   }
 }
