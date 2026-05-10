@@ -1,6 +1,5 @@
 import admin from "firebase-admin";
 
-// ── Firebase init ─────────────────────────────────────────────────────────────
 let db = null;
 let initError = null;
 
@@ -26,11 +25,25 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // GET = health check
+  // ── NEW: log every request hit to Firestore ──────────────────────────────
+  if (db) {
+    try {
+      await db.collection("_request_log").add({
+        method:    req.method,
+        url:       req.url,
+        headers:   JSON.stringify(req.headers),
+        body:      JSON.stringify(req.body ?? {}),
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}  // never block the real response
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
+  // GET = health / ping check
   if (req.method === "GET") {
     return res.status(200).json({
-      ok: true,
-      db_ready: db !== null,
+      ok:         true,
+      db_ready:   db !== null,
       init_error: initError,
       env_check: {
         has_project_id:   !!process.env.FIREBASE_PROJECT_ID,
@@ -51,17 +64,17 @@ export default async function handler(req, res) {
     return res.status(401).json({ success: false, error: "Unauthorized" });
   }
 
-  // DB check
   if (!db) {
     return res.status(500).json({
       success: false,
-      error: "Firestore not initialized",
-      detail: initError,
+      error:   "Firestore not initialized",
+      detail:  initError,
     });
   }
 
-  // Parse body
-  const body = req.body ?? {};
+  // Parse body (safe for both raw string and pre-parsed object)
+  const rawBody = req.body ?? {};
+  const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
   const { userId, partnerId, partnerName, itemsReceived, tradeId, timestamp } = body;
 
   if (!userId)                       return res.status(400).json({ success: false, error: "Missing userId" });
@@ -90,7 +103,7 @@ export default async function handler(req, res) {
   };
 
   try {
-    const userRef = db.collection("trades").doc(String(userId));
+    const userRef    = db.collection("trades").doc(String(userId));
     const historyRef = userRef.collection("history");
 
     let docRef;
