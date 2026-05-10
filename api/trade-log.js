@@ -12,7 +12,6 @@ try {
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         privateKey:  process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
       }),
-      databaseURL: process.env.FIREBASE_DATABASE_URL,
     });
   }
   dbReady = true;
@@ -20,7 +19,7 @@ try {
   initError = e.message;
 }
 
-const db = dbReady ? admin.database() : null;
+const db = dbReady ? admin.firestore() : null;
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
@@ -30,7 +29,7 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // GET = health check, no auth needed
+  // GET = health check
   if (req.method === "GET") {
     return res.status(200).json({
       ok: true,
@@ -40,7 +39,6 @@ export default async function handler(req, res) {
         has_project_id:   !!process.env.FIREBASE_PROJECT_ID,
         has_client_email: !!process.env.FIREBASE_CLIENT_EMAIL,
         has_private_key:  !!process.env.FIREBASE_PRIVATE_KEY,
-        has_database_url: !!process.env.FIREBASE_DATABASE_URL,
         has_api_secret:   !!process.env.API_SECRET_KEY,
       },
     });
@@ -91,25 +89,27 @@ export default async function handler(req, res) {
       },
     })),
     clientTimestamp: timestamp ?? null,
-    serverTimestamp: Date.now(),
+    serverTimestamp: admin.firestore.FieldValue.serverTimestamp(),
   };
 
   try {
-    const ref = tradeId
-      ? db.ref(`trades/${userId}/${tradeId}`)
-      : db.ref(`trades/${userId}`).push();
+    // Collection: trades → document: userId → subcollection: history → auto ID
+    const ref = db
+      .collection("trades")
+      .doc(String(userId))
+      .collection("history")
+      .doc(tradeId ? String(tradeId) : undefined);
 
-    await ref.set(record);
+    await (tradeId ? ref.set(record) : db.collection("trades").doc(String(userId)).collection("history").add(record));
 
     return res.status(200).json({
-      success:  true,
-      tradeKey: ref.key,
-      path:     `trades/${userId}/${ref.key}`,
+      success: true,
+      path: `trades/${userId}/history`,
     });
   } catch (err) {
     return res.status(500).json({
       success: false,
-      error:   "Database write failed",
+      error:   "Firestore write failed",
       detail:  err.message,
     });
   }
