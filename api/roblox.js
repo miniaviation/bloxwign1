@@ -1,8 +1,5 @@
 // api/roblox.js — Vercel Serverless Function
-// Runs server-side only. Source is never exposed to the public.
-
 module.exports = async function handler(req, res) {
-  // CORS headers (allows your frontend to call this)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 
@@ -13,15 +10,28 @@ module.exports = async function handler(req, res) {
   if (!username) return res.status(400).json({ error: 'username required' });
 
   try {
-    // Step 1: Search Roblox for the username
-    const searchRes = await fetch(
-      `https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(username)}&limit=10`
-    );
-    if (!searchRes.ok) throw new Error(`search_${searchRes.status}`);
-    const searchData = await searchRes.json();
+    // Step 1: POST to usernames endpoint (more reliable than search)
+    const lookupRes = await fetch('https://users.roblox.com/v1/usernames/users', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+      body: JSON.stringify({
+        usernames: [username],
+        excludeBannedUsers: false
+      })
+    });
 
-    // Exact match only (case-insensitive)
-    const match = (searchData.data || []).find(
+    if (!lookupRes.ok) {
+      const text = await lookupRes.text();
+      console.error('[roblox] lookup failed:', lookupRes.status, text);
+      throw new Error(`lookup_${lookupRes.status}`);
+    }
+
+    const lookupData = await lookupRes.json();
+    const match = (lookupData.data || []).find(
       u => u.name.toLowerCase() === username.toLowerCase()
     );
 
@@ -29,8 +39,14 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ found: false });
     }
 
-    // Step 2: Fetch full profile to get bio
-    const profileRes = await fetch(`https://users.roblox.com/v1/users/${match.id}`);
+    // Step 2: Fetch full profile for bio
+    const profileRes = await fetch(`https://users.roblox.com/v1/users/${match.id}`, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      }
+    });
+
     if (!profileRes.ok) throw new Error(`profile_${profileRes.status}`);
     const profile = await profileRes.json();
 
@@ -43,7 +59,7 @@ module.exports = async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error('[BetWing/roblox]', err.message);
-    return res.status(502).json({ error: 'Failed to reach Roblox API' });
+    console.error('[roblox]', err.message);
+    return res.status(502).json({ error: 'Failed to reach Roblox API', detail: err.message });
   }
 };
