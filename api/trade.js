@@ -1,3 +1,4 @@
+// api/trade.js
 import admin from "firebase-admin";
 
 if (!admin.apps.length) {
@@ -28,12 +29,12 @@ export default async function handler(req, res) {
   }
 
   const { partnerName, partnerItems } = req.body ?? {};
+
   if (!partnerName) {
     return res.status(400).json({ error: "Missing required field: partnerName" });
   }
 
   try {
-    // Doc keyed by partnerName (e.g. "CoatiLlama")
     const docRef  = db.collection("trades").doc(partnerName);
     const docSnap = await docRef.get();
 
