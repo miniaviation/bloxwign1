@@ -10,7 +10,7 @@ module.exports = async function handler(req, res) {
   if (!username) return res.status(400).json({ error: 'username required' });
 
   try {
-    // Step 1: POST to usernames endpoint (more reliable than search)
+    // Step 1: POST to usernames endpoint (most reliable)
     const lookupRes = await fetch('https://users.roblox.com/v1/usernames/users', {
       method: 'POST',
       headers: {
@@ -24,13 +24,20 @@ module.exports = async function handler(req, res) {
       })
     });
 
+    // Log exactly what Roblox returned
+    const rawLookup = await lookupRes.text();
+    console.log('[roblox] lookup status:', lookupRes.status);
+    console.log('[roblox] lookup body:', rawLookup);
+
     if (!lookupRes.ok) {
-      const text = await lookupRes.text();
-      console.error('[roblox] lookup failed:', lookupRes.status, text);
-      throw new Error(`lookup_${lookupRes.status}`);
+      return res.status(502).json({
+        error: 'Roblox lookup failed',
+        status: lookupRes.status,
+        body: rawLookup   // <-- will show in your browser/network tab
+      });
     }
 
-    const lookupData = await lookupRes.json();
+    const lookupData = JSON.parse(rawLookup);
     const match = (lookupData.data || []).find(
       u => u.name.toLowerCase() === username.toLowerCase()
     );
@@ -47,8 +54,19 @@ module.exports = async function handler(req, res) {
       }
     });
 
-    if (!profileRes.ok) throw new Error(`profile_${profileRes.status}`);
-    const profile = await profileRes.json();
+    const rawProfile = await profileRes.text();
+    console.log('[roblox] profile status:', profileRes.status);
+    console.log('[roblox] profile body:', rawProfile);
+
+    if (!profileRes.ok) {
+      return res.status(502).json({
+        error: 'Roblox profile fetch failed',
+        status: profileRes.status,
+        body: rawProfile
+      });
+    }
+
+    const profile = JSON.parse(rawProfile);
 
     return res.status(200).json({
       found      : true,
@@ -59,7 +77,11 @@ module.exports = async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error('[roblox]', err.message);
-    return res.status(502).json({ error: 'Failed to reach Roblox API', detail: err.message });
+    // This will now surface the REAL error in the response body
+    console.error('[roblox] crash:', err);
+    return res.status(500).json({
+      error  : err.message,
+      stack  : err.stack   // remove this line before going to production
+    });
   }
 };
