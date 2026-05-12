@@ -13,28 +13,23 @@ module.exports = async function handler(req, res) {
   if (!username) return res.status(400).json({ error: 'username required' });
 
   try {
-    // Step 1: Resolve username → userId via the POST usernames endpoint
-    // (this is the correct public API — the search endpoint is unreliable without auth)
-    const resolveRes = await fetch('https://users.roblox.com/v1/usernames/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        usernames: [username],
-        excludeBannedUsers: false
-      })
-    });
-    if (!resolveRes.ok) throw new Error(`resolve_${resolveRes.status}`);
-    const resolveData = await resolveRes.json();
+    // Step 1: Search Roblox for the username
+    const searchRes = await fetch(
+      `https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(username)}&limit=10`
+    );
+    if (!searchRes.ok) throw new Error(`search_${searchRes.status}`);
+    const searchData = await searchRes.json();
 
-    const match = (resolveData.data || []).find(
-      u => u.requestedUsername.toLowerCase() === username.toLowerCase()
+    // Exact match only (case-insensitive)
+    const match = (searchData.data || []).find(
+      u => u.name.toLowerCase() === username.toLowerCase()
     );
 
     if (!match) {
       return res.status(200).json({ found: false });
     }
 
-    // Step 2: Fetch full profile by userId — this includes the bio (description)
+    // Step 2: Fetch full profile to get bio
     const profileRes = await fetch(`https://users.roblox.com/v1/users/${match.id}`);
     if (!profileRes.ok) throw new Error(`profile_${profileRes.status}`);
     const profile = await profileRes.json();
