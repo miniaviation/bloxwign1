@@ -1,5 +1,8 @@
 // api/roblox.js — Vercel Serverless Function
 // Runs server-side only. Source is never exposed to the public.
+// Requires: npm install noblox.js
+
+const noblox = require('noblox.js');
 
 module.exports = async function handler(req, res) {
   // CORS headers (allows your frontend to call this)
@@ -13,36 +16,30 @@ module.exports = async function handler(req, res) {
   if (!username) return res.status(400).json({ error: 'username required' });
 
   try {
-    // Step 1: Search Roblox for the username
-    const searchRes = await fetch(
-      `https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(username)}&limit=10`
-    );
-    if (!searchRes.ok) throw new Error(`search_${searchRes.status}`);
-    const searchData = await searchRes.json();
+    // Step 1: Resolve username → userId
+    const userId = await noblox.getIdFromUsername(username);
 
-    // Exact match only (case-insensitive)
-    const match = (searchData.data || []).find(
-      u => u.name.toLowerCase() === username.toLowerCase()
-    );
-
-    if (!match) {
+    if (!userId) {
       return res.status(200).json({ found: false });
     }
 
-    // Step 2: Fetch full profile to get bio
-    const profileRes = await fetch(`https://users.roblox.com/v1/users/${match.id}`);
-    if (!profileRes.ok) throw new Error(`profile_${profileRes.status}`);
-    const profile = await profileRes.json();
+    // Step 2: Fetch full player info (includes bio/blurb)
+    const info = await noblox.getPlayerInfo(userId);
 
     return res.status(200).json({
       found      : true,
-      id         : match.id,
-      username   : profile.name,
-      displayName: profile.displayName,
-      bio        : profile.description || ''
+      id         : userId,
+      username   : info.username,
+      displayName: info.displayName,
+      bio        : info.blurb || ''
     });
 
   } catch (err) {
+    // noblox throws if username not found
+    if (err.message && err.message.toLowerCase().includes('not found')) {
+      return res.status(200).json({ found: false });
+    }
+
     console.error('[BetWing/roblox]', err.message);
     return res.status(502).json({ error: 'Failed to reach Roblox API' });
   }
