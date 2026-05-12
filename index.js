@@ -142,7 +142,7 @@ async function handleLogin() {
     if (missingWords.length === 0) {
       notif.remove();
       showNotification('Bio verified! Redirecting…', 'success');
-      setTimeout(() => { window.location.href = 'Inventory.html'; }, 1400);
+      setTimeout(() => { window.location.href = '/inventory'; }, 1400);
     } else {
       notif.remove();
       showNotification(

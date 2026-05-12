@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BetWing - Inventory</title>
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+
+  <!-- ─── SIDEBAR ─── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">BetWing</div>
+    <nav class="sidebar-nav">
+      <a class="nav-item active" href="/inventory">
+        <div class="nav-item-left">
+          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+          </svg>
+          Inventory
+        </div>
+      </a>
+      <a class="nav-item" href="#" onclick="return false;">
+        <div class="nav-item-left">
+          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+          Coinflip
+        </div>
+        <span class="soon-badge">Soon</span>
+      </a>
+      <a class="nav-item" href="#" onclick="return false;">
+        <div class="nav-item-left">
+          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          </svg>
+          Jackpot
+        </div>
+        <span class="soon-badge">Soon</span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="online-indicator">
+        <div class="online-dot"></div>
+        <span id="sidebarOnline">— online</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ─── MAIN ─── -->
+  <div class="main">
+
+    <!-- Topbar -->
+    <div class="topbar">
+      <span class="topbar-title">Inventory</span>
+      <div class="topbar-actions">
+        <div class="btn-icon" title="Refresh" onclick="refreshInventory()">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </div>
+        <button class="btn-withdraw" id="withdrawBtn">Withdraw (0)</button>
+        <button class="btn-deposit" onclick="showDepositMsg()">Deposit Items</button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content-area">
+
+      <!-- Inventory panel -->
+      <div class="inventory-panel">
+        <div class="filter-row">
+          <div class="search-box">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="searchInput" placeholder="Enter item name..." oninput="filterItems()" />
+          </div>
+          <button class="all-bots-btn">
+            <div class="bot-dot"></div>
+            All Bots
+          </button>
+        </div>
+
+        <div class="items-grid" id="itemsGrid">
+          <!-- Deposit card always first -->
+          <div class="item-card deposit-card" onclick="showDepositMsg()">
+            <span class="plus-icon">+</span>
+            <span>Deposit Item</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat panel -->
+      <div class="chat-panel">
+        <div class="chat-header">
+          <span class="chat-title">Live Chat</span>
+          <div class="online-count">
+            <div class="online-count-dot"></div>
+            <span id="onlineCount">—</span>&nbsp;online
+          </div>
+        </div>
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input-area">
+          <div class="chat-input-row">
+            <input class="chat-input" id="chatInput" type="text" placeholder="Type a message..." maxlength="200" onkeydown="handleChatKey(event)" />
+            <button class="send-btn" onclick="sendMessage()">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>
