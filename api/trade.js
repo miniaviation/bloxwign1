@@ -1,5 +1,6 @@
 // api/trade.js
 import admin from "firebase-admin";
+
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -10,6 +11,15 @@ if (!admin.apps.length) {
   });
 }
 const db = admin.firestore();
+
+// ← ADD THIS — tells Next.js to parse the JSON body
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "1mb",
+    },
+  },
+};
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -23,12 +33,14 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
+  // ← ADD THIS — log the raw body so we can see what's arriving
+  console.log("[BloxWing] Raw body:", JSON.stringify(req.body));
+
   const { partnerId, partnerItems } = req.body ?? {};
   if (!partnerId) {
     return res.status(400).json({ error: "Missing required field: partnerId" });
   }
 
-  // Fetch partner username from Roblox API
   let partnerName = "Unknown";
   try {
     const robloxRes = await fetch(`https://users.roblox.com/v1/users/${partnerId}`);
@@ -41,7 +53,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // One doc per partner, keyed by their Roblox user ID
     const docRef = db.collection("trades").doc(partnerId);
     const docSnap = await docRef.get();
 
@@ -51,28 +62,26 @@ export default async function handler(req, res) {
     };
 
     if (docSnap.exists) {
-      // Partner already exists — append this trade's items to their history
       await docRef.update({
-        partnerName,                                          // keep name fresh
-        trades: admin.firestore.FieldValue.arrayUnion(newEntry),
-        lastTradeAt: admin.firestore.FieldValue.serverTimestamp(),
+        partnerName,
+        trades      : admin.firestore.FieldValue.arrayUnion(newEntry),
+        lastTradeAt : admin.firestore.FieldValue.serverTimestamp(),
       });
-      console.log(`[BloxWing] ✅  Trade appended → trades/${partnerId}  (${partnerName})`);
+      console.log(`[BloxWing] ✅ Trade appended → trades/${partnerId} (${partnerName})`);
     } else {
-      // First trade with this partner — create the doc
       await docRef.set({
         partnerId,
         partnerName,
-        trades      : [newEntry],
-        firstTradeAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastTradeAt : admin.firestore.FieldValue.serverTimestamp(),
+        trades       : [newEntry],
+        firstTradeAt : admin.firestore.FieldValue.serverTimestamp(),
+        lastTradeAt  : admin.firestore.FieldValue.serverTimestamp(),
       });
-      console.log(`[BloxWing] ✅  New partner saved → trades/${partnerId}  (${partnerName})`);
+      console.log(`[BloxWing] ✅ New partner saved → trades/${partnerId} (${partnerName})`);
     }
 
     return res.status(200).json({ success: true, partnerName });
   } catch (err) {
-    console.error("[BloxWing] ❌  Firestore write failed:", err);
+    console.error("[BloxWing] ❌ Firestore write failed:", err);
     return res.status(500).json({ error: "Firebase write failed", details: err.message });
   }
 }
