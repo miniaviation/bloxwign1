@@ -1,5 +1,8 @@
 // api/roblox.js — Vercel Serverless Function
+// Runs server-side only. Source is never exposed to the public.
+
 module.exports = async function handler(req, res) {
+  // CORS headers (allows your frontend to call this)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 
@@ -10,63 +13,31 @@ module.exports = async function handler(req, res) {
   if (!username) return res.status(400).json({ error: 'username required' });
 
   try {
-    // Step 1: POST to usernames endpoint (most reliable)
-    const lookupRes = await fetch('https://users.roblox.com/v1/usernames/users', {
+    // Step 1: Resolve username → userId via the POST usernames endpoint
+    // (this is the correct public API — the search endpoint is unreliable without auth)
+    const resolveRes = await fetch('https://users.roblox.com/v1/usernames/users', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         usernames: [username],
         excludeBannedUsers: false
       })
     });
+    if (!resolveRes.ok) throw new Error(`resolve_${resolveRes.status}`);
+    const resolveData = await resolveRes.json();
 
-    // Log exactly what Roblox returned
-    const rawLookup = await lookupRes.text();
-    console.log('[roblox] lookup status:', lookupRes.status);
-    console.log('[roblox] lookup body:', rawLookup);
-
-    if (!lookupRes.ok) {
-      return res.status(502).json({
-        error: 'Roblox lookup failed',
-        status: lookupRes.status,
-        body: rawLookup   // <-- will show in your browser/network tab
-      });
-    }
-
-    const lookupData = JSON.parse(rawLookup);
-    const match = (lookupData.data || []).find(
-      u => u.name.toLowerCase() === username.toLowerCase()
+    const match = (resolveData.data || []).find(
+      u => u.requestedUsername.toLowerCase() === username.toLowerCase()
     );
 
     if (!match) {
       return res.status(200).json({ found: false });
     }
 
-    // Step 2: Fetch full profile for bio
-    const profileRes = await fetch(`https://users.roblox.com/v1/users/${match.id}`, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      }
-    });
-
-    const rawProfile = await profileRes.text();
-    console.log('[roblox] profile status:', profileRes.status);
-    console.log('[roblox] profile body:', rawProfile);
-
-    if (!profileRes.ok) {
-      return res.status(502).json({
-        error: 'Roblox profile fetch failed',
-        status: profileRes.status,
-        body: rawProfile
-      });
-    }
-
-    const profile = JSON.parse(rawProfile);
+    // Step 2: Fetch full profile by userId — this includes the bio (description)
+    const profileRes = await fetch(`https://users.roblox.com/v1/users/${match.id}`);
+    if (!profileRes.ok) throw new Error(`profile_${profileRes.status}`);
+    const profile = await profileRes.json();
 
     return res.status(200).json({
       found      : true,
@@ -77,11 +48,7 @@ module.exports = async function handler(req, res) {
     });
 
   } catch (err) {
-    // This will now surface the REAL error in the response body
-    console.error('[roblox] crash:', err);
-    return res.status(500).json({
-      error  : err.message,
-      stack  : err.stack   // remove this line before going to production
-    });
+    console.error('[BetWing/roblox]', err.message);
+    return res.status(502).json({ error: 'Failed to reach Roblox API' });
   }
 };
