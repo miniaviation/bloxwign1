@@ -1,121 +1,192 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BetWing - Inventory</title>
-  <link rel="stylesheet" href="/inventory/index.css" />
-</head>
-<body>
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
-  <!-- ─── SIDEBAR ─── -->
-  <aside class="sidebar">
-    <div class="sidebar-logo">BetWing</div>
-    <nav class="sidebar-nav">
-      <a class="nav-item active" href="/inventory">
-        <div class="nav-item-left">
-          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
-          </svg>
-          Inventory
-        </div>
-      </a>
-      <a class="nav-item" href="#" onclick="return false;">
-        <div class="nav-item-left">
-          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-          </svg>
-          Coinflip
-        </div>
-        <span class="soon-badge">Soon</span>
-      </a>
-      <a class="nav-item" href="#" onclick="return false;">
-        <div class="nav-item-left">
-          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-          </svg>
-          Jackpot
-        </div>
-        <span class="soon-badge">Soon</span>
-      </a>
-    </nav>
-    <div class="sidebar-footer">
-      <div class="online-indicator">
-        <div class="online-dot"></div>
-        <span id="sidebarOnline">— online</span>
+function getTime() {
+  const d = new Date();
+  return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+}
+
+// ── Item image via amvgg.com ──────────────────────────────────────────────────
+function itemImageUrl(name) {
+  const slug = encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'));
+  return `https://amvgg.com/images/items/${slug}.png`;
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let allItems      = [];
+let selectedItems = new Set();
+
+// ── Session username ──────────────────────────────────────────────────────────
+// The login page must write the verified username to sessionStorage like:
+//   sessionStorage.setItem('bw_username', username);
+function getLoggedInUsername() {
+  return sessionStorage.getItem('bw_username') ?? null;
+}
+
+// ── Inventory fetch ───────────────────────────────────────────────────────────
+async function loadInventory() {
+  const username = getLoggedInUsername();
+
+  if (!username) {
+    renderItems([]);
+    showBanner('Not logged in. Please <a href="/">log in</a> first.');
+    return;
+  }
+
+  setLoadingState(true);
+
+  try {
+    const res = await fetch(`/api/inventory?username=${encodeURIComponent(username)}`, {
+      signal: AbortSignal.timeout(12000),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data = await res.json();
+    allItems = data.items ?? [];
+    renderItems(allItems);
+  } catch (err) {
+    console.error('[BetWing] Inventory fetch failed:', err);
+    showBanner('Failed to load inventory. Please try refreshing.');
+  } finally {
+    setLoadingState(false);
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderItems(items) {
+  const grid = document.getElementById('itemsGrid');
+
+  // Remove everything except the deposit card (always first)
+  [...grid.children].slice(1).forEach(k => k.remove());
+
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'No items in your inventory yet.';
+    grid.appendChild(empty);
+    return;
+  }
+
+  items.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.className = 'item-card';
+    if (selectedItems.has(idx)) card.classList.add('selected');
+
+    const imgUrl = itemImageUrl(item.name);
+
+    card.innerHTML = `
+      <div class="item-img-wrap">
+        <img
+          src="${escHtml(imgUrl)}"
+          alt="${escHtml(item.name)}"
+          class="item-img"
+          onerror="this.style.display='none'"
+        />
       </div>
+      <span class="item-name">${escHtml(item.name)}</span>
+    `;
+
+    card.addEventListener('click', () => toggleSelect(idx, card));
+    grid.appendChild(card);
+  });
+
+  updateWithdrawBtn();
+}
+
+// ── Selection ─────────────────────────────────────────────────────────────────
+function toggleSelect(idx, card) {
+  if (selectedItems.has(idx)) {
+    selectedItems.delete(idx);
+    card.classList.remove('selected');
+  } else {
+    selectedItems.add(idx);
+    card.classList.add('selected');
+  }
+  updateWithdrawBtn();
+}
+
+function updateWithdrawBtn() {
+  const btn = document.getElementById('withdrawBtn');
+  btn.textContent = `Withdraw (${selectedItems.size})`;
+  btn.disabled = selectedItems.size === 0;
+}
+
+// ── Search / filter ───────────────────────────────────────────────────────────
+function filterItems() {
+  const val = document.getElementById('searchInput').value.toLowerCase().trim();
+  const filtered = val ? allItems.filter(i => i.name.toLowerCase().includes(val)) : allItems;
+  selectedItems.clear();
+  renderItems(filtered);
+}
+
+// ── Refresh ───────────────────────────────────────────────────────────────────
+function refreshInventory() {
+  document.getElementById('searchInput').value = '';
+  selectedItems.clear();
+  loadInventory();
+}
+
+// ── Deposit ───────────────────────────────────────────────────────────────────
+function showDepositMsg() {
+  alert('Deposits are coming soon. Stay tuned for the BetWing launch!');
+}
+
+// ── Loading state ─────────────────────────────────────────────────────────────
+function setLoadingState(on) {
+  document.getElementById('itemsGrid').classList.toggle('loading', on);
+}
+
+// ── Banner (error / info) ─────────────────────────────────────────────────────
+function showBanner(html) {
+  let banner = document.getElementById('invBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'invBanner';
+    banner.className = 'inv-banner';
+    document.querySelector('.inventory-panel').prepend(banner);
+  }
+  banner.innerHTML = html;
+  banner.style.display = 'block';
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+function addMsg(name, text, colorClass = '', scroll = true) {
+  const box = document.getElementById('chatMessages');
+  const initials = name.slice(0, 2).toUpperCase();
+  const div = document.createElement('div');
+  div.className = 'chat-msg';
+  div.innerHTML = `
+    <div class="chat-avatar">${initials}</div>
+    <div class="chat-msg-body">
+      <div class="chat-msg-name ${colorClass}">${escHtml(name)}</div>
+      <div class="chat-msg-text">${escHtml(text)}</div>
+      <div class="chat-msg-time">${getTime()}</div>
     </div>
-  </aside>
+  `;
+  box.appendChild(div);
+  if (scroll) box.scrollTop = box.scrollHeight;
+  while (box.children.length > 60) box.removeChild(box.firstChild);
+}
 
-  <!-- ─── MAIN ─── -->
-  <div class="main">
+function sendMessage() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  // TODO: send to backend WebSocket/API
+  addMsg('You', text, 'green');
+  input.value = '';
+}
 
-    <!-- Topbar -->
-    <div class="topbar">
-      <span class="topbar-title">Inventory</span>
-      <div class="topbar-actions">
-        <div class="btn-icon" title="Refresh" onclick="refreshInventory()">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-          </svg>
-        </div>
-        <button class="btn-withdraw" id="withdrawBtn">Withdraw (0)</button>
-        <button class="btn-deposit" onclick="showDepositMsg()">Deposit Items</button>
-      </div>
-    </div>
+function handleChatKey(e) {
+  if (e.key === 'Enter') sendMessage();
+}
 
-    <!-- Content -->
-    <div class="content-area">
-
-      <!-- Inventory panel -->
-      <div class="inventory-panel">
-        <div class="filter-row">
-          <div class="search-box">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input type="text" id="searchInput" placeholder="Enter item name..." oninput="filterItems()" />
-          </div>
-          <button class="all-bots-btn">
-            <div class="bot-dot"></div>
-            All Bots
-          </button>
-        </div>
-
-        <div class="items-grid" id="itemsGrid">
-          <!-- Deposit card always first -->
-          <div class="item-card deposit-card" onclick="showDepositMsg()">
-            <span class="plus-icon">+</span>
-            <span>Deposit Item</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Chat panel -->
-      <div class="chat-panel">
-        <div class="chat-header">
-          <span class="chat-title">Live Chat</span>
-          <div class="online-count">
-            <div class="online-count-dot"></div>
-            <span id="onlineCount">—</span>&nbsp;online
-          </div>
-        </div>
-        <div class="chat-messages" id="chatMessages"></div>
-        <div class="chat-input-area">
-          <div class="chat-input-row">
-            <input class="chat-input" id="chatInput" type="text" placeholder="Type a message..." maxlength="200" onkeydown="handleChatKey(event)" />
-            <button class="send-btn" onclick="sendMessage()">
-              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-  <script src="/inventory/index.js"></script>
-</body>
-</html>
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadInventory();

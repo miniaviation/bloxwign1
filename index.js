@@ -90,8 +90,6 @@ function showNotification(message, type = 'error') {
 }
 
 // ── Roblox API — calls our private Vercel serverless function ─────────────────
-// /api/roblox is a server-side function; its source is never exposed publicly.
-// It forwards the request to Roblox where browser CORS rules don't apply.
 async function fetchRobloxProfile(username) {
   const res = await fetch(
     `/api/roblox?username=${encodeURIComponent(username)}`,
@@ -142,6 +140,8 @@ async function handleLogin() {
     if (missingWords.length === 0) {
       notif.remove();
       showNotification('Bio verified! Redirecting…', 'success');
+      // Save the Roblox-resolved username so the inventory page can fetch the right user
+      sessionStorage.setItem('bw_username', profile.username);
       setTimeout(() => { window.location.href = '/inventory'; }, 1400);
     } else {
       notif.remove();
