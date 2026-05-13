@@ -97,7 +97,7 @@ function renderItems(items) {
     const imgUrl  = itemImageUrl(item.name);
     const val     = valueMap[item.name];
     const valHtml = val != null
-      ? `<span class="item-value">${val}</span>`
+      ? `<span class="item-value">⬥ ${val}</span>`
       : '';
 
     card.innerHTML = `

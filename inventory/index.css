@@ -348,9 +348,14 @@ body {
 .item-value {
   font-size: 10px;
   font-weight: 700;
-  color: #a855f7;
-  letter-spacing: 0.3px;
-  line-height: 1;
+  color: #e9d5ff;
+  background: rgba(168, 85, 247, 0.25);
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  border-radius: 4px;
+  padding: 2px 6px;
+  letter-spacing: 0.4px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 /* Selected state */

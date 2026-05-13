@@ -1,7 +1,7 @@
 // api/amvgg-values.js
-// Server-side proxy: fetches https://amvgg.com/values/pets, parses item names
-// and values from the HTML, and returns them as JSON.
-// This avoids CORS issues since the fetch happens server-to-server.
+// Server-side proxy: fetches amvgg.com pet + food value pages, parses item
+// names and values, multiplies by 1000, and returns as JSON.
+// Runs server-to-server so there are no CORS issues for the browser.
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,25 +11,42 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'GET')    return res.status(405).json({ error: 'Method not allowed' });
 
-  // Cache for 10 minutes via CDN/Vercel edge cache
+  // Cache 10 minutes at the edge, serve stale for 1 minute while revalidating
   res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=60');
 
+  const HEADERS = {
+    'User-Agent'     : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept'         : 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+
+  const PAGES = [
+    'https://amvgg.com/values/pets',
+    'https://amvgg.com/values/food',
+  ];
+
   try {
-    const r = await fetch('https://amvgg.com/values/pets', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      signal: AbortSignal.timeout(15000),
-    });
+    // Fetch all pages in parallel
+    const htmls = await Promise.all(
+      PAGES.map(url =>
+        fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(15000) })
+          .then(r => {
+            if (!r.ok) throw new Error(`amvgg returned HTTP ${r.status} for ${url}`);
+            return r.text();
+          })
+      )
+    );
 
-    if (!r.ok) {
-      return res.status(502).json({ error: `amvgg returned HTTP ${r.status}` });
+    const seen  = new Set();
+    const items = [];
+
+    for (const html of htmls) {
+      for (const item of parseItems(html)) {
+        if (seen.has(item.name)) continue;
+        seen.add(item.name);
+        items.push(item);
+      }
     }
-
-    const html = await r.text();
-    const items = parseItems(html);
 
     return res.status(200).json({ items });
   } catch (err) {
@@ -39,32 +56,33 @@ export default async function handler(req, res) {
 }
 
 // ── Parser ────────────────────────────────────────────────────────────────────
-// The amvgg page renders markdown-like content server-side.
-// Each pet block looks like:
+// Each item block on the amvgg pages looks like:
 //
-//   ## Pet Name
-//   Value1.275
+//   ## Item Name
+//   Value0.275
 //
-// We extract both pieces with a single pass regex.
+// We grab name + raw value, multiply by 1000, and round to 2 dp.
 
 function parseItems(html) {
   const items = [];
   const seen  = new Set();
 
-  // Match:  ## <name>\n  ...  Value<number>
-  // The [\s\S]*? allows a few lines of intervening markup between the heading
-  // and the value line.
+  // Match "## <name>" followed (within ~300 chars) by "Value<number>"
   const RE = /##\s+(.+?)\n[\s\S]{0,300}?Value([\d.]+)/g;
 
   let m;
   while ((m = RE.exec(html)) !== null) {
-    const name  = m[1].trim();
-    const value = parseFloat(m[2]);
+    const name     = m[1].trim();
+    const rawValue = parseFloat(m[2]);
 
-    if (!name || isNaN(value)) continue;
-    if (seen.has(name)) continue; // deduplicate (page sometimes repeats headers)
+    if (!name || isNaN(rawValue)) continue;
+    if (seen.has(name)) continue;
 
     seen.add(name);
+
+    // ×1000 so e.g. 1.275 → 1275, 0.0275 → 27.5
+    const value = Math.round(rawValue * 1000 * 100) / 100;
+
     items.push({ name, value });
   }
 
