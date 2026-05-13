@@ -80,8 +80,8 @@ function parseItems(html) {
 
     seen.add(name);
 
-    // ×1000 so e.g. 1.275 → 1275, 0.0275 → 27.5
-    const value = Math.round(rawValue * 1000 * 100) / 100;
+    // ×900 so e.g. 1.275 → 1147.5, 0.3 → 270
+    const value = Math.round(rawValue * 900 * 100) / 100;
 
     items.push({ name, value });
   }
