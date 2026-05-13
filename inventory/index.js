@@ -14,19 +14,34 @@ function getTime() {
 
 // ── Item image via amvgg.com ──────────────────────────────────────────────────
 function itemImageUrl(name) {
-  const slug = encodeURIComponent(name.toLowerCase().replace(/\s+/g, '-'));
-  return `https://amvgg.com/images/items/${slug}.png`;
+  // amvgg serves images as .webp with original casing and spaces encoded
+  return `https://amvgg.com/items/${encodeURIComponent(name)}.webp`;
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allItems      = [];
 let selectedItems = new Set();
+let valueMap      = {}; // { "Frost Dragon": 1.275, ... }
 
 // ── Session username ──────────────────────────────────────────────────────────
-// The login page must write the verified username to sessionStorage like:
-//   sessionStorage.setItem('bw_username', username);
 function getLoggedInUsername() {
   return sessionStorage.getItem('bw_username') ?? null;
+}
+
+// ── Load values from our proxy (api/amvgg-values.js) ─────────────────────────
+async function loadValues() {
+  try {
+    const res = await fetch('/api/amvgg-values', {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    (data.items ?? []).forEach(item => {
+      if (item.name) valueMap[item.name] = item.value ?? null;
+    });
+  } catch (err) {
+    console.warn('[BetWing] Could not load amvgg values:', err.message);
+  }
 }
 
 // ── Inventory fetch ───────────────────────────────────────────────────────────
@@ -79,7 +94,11 @@ function renderItems(items) {
     card.className = 'item-card';
     if (selectedItems.has(idx)) card.classList.add('selected');
 
-    const imgUrl = itemImageUrl(item.name);
+    const imgUrl  = itemImageUrl(item.name);
+    const val     = valueMap[item.name];
+    const valHtml = val != null
+      ? `<span class="item-value">${val}</span>`
+      : '';
 
     card.innerHTML = `
       <div class="item-img-wrap">
@@ -91,6 +110,7 @@ function renderItems(items) {
         />
       </div>
       <span class="item-name">${escHtml(item.name)}</span>
+      ${valHtml}
     `;
 
     card.addEventListener('click', () => toggleSelect(idx, card));
@@ -189,4 +209,9 @@ function handleChatKey(e) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-loadInventory();
+async function boot() {
+  await loadValues();   // fetch amvgg values first so cards render with prices
+  loadInventory();      // then load the user's items
+}
+
+boot();

@@ -11,7 +11,7 @@ body {
   overflow: hidden;
 }
 
-/* ─── SIDEBAR ──────────────────────────────────── */
+/* ─── SIDEBAR ──────────────────────────────────────────────────────────────── */
 .sidebar {
   width: 220px;
   min-width: 220px;
@@ -120,7 +120,7 @@ body {
   50%       { opacity: 0.4; }
 }
 
-/* ─── MAIN ─────────────────────────────────────── */
+/* ─── MAIN ──────────────────────────────────────────────────────────────────── */
 .main {
   flex: 1;
   display: flex;
@@ -128,7 +128,7 @@ body {
   overflow: hidden;
 }
 
-/* ─── TOPBAR ────────────────────────────────────── */
+/* ─── TOPBAR ─────────────────────────────────────────────────────────────────── */
 .topbar {
   height: 60px;
   background: #0d1525;
@@ -180,6 +180,10 @@ body {
   transition: background 0.2s;
 }
 .btn-withdraw:hover { background: #1e4a7f; }
+.btn-withdraw:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .btn-deposit {
   padding: 8px 18px;
@@ -195,7 +199,7 @@ body {
 }
 .btn-deposit:hover { opacity: 0.88; transform: translateY(-1px); }
 
-/* ─── CONTENT ───────────────────────────────────── */
+/* ─── CONTENT ────────────────────────────────────────────────────────────────── */
 .content-area {
   flex: 1;
   display: flex;
@@ -291,8 +295,9 @@ body {
   font-size: 13px;
   color: #64748b;
   font-weight: 500;
-  gap: 8px;
+  gap: 6px;
   user-select: none;
+  padding: 8px 6px;
 }
 
 .item-card:hover {
@@ -325,18 +330,27 @@ body {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  image-rendering: pixelated;
+  image-rendering: auto;
 }
 
 .item-name {
   font-size: 11px;
   color: #94a3b8;
   text-align: center;
-  padding: 0 6px;
+  padding: 0 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   width: 100%;
+}
+
+/* ── Value badge ──────────────────────────────────────────────────────────── */
+.item-value {
+  font-size: 10px;
+  font-weight: 700;
+  color: #a855f7;
+  letter-spacing: 0.3px;
+  line-height: 1;
 }
 
 /* Selected state */
@@ -374,7 +388,7 @@ body {
 }
 .inv-banner a { color: #a855f7; }
 
-/* ─── CHAT PANEL ────────────────────────────────── */
+/* ─── CHAT PANEL ─────────────────────────────────────────────────────────────── */
 .chat-panel {
   width: 280px;
   min-width: 280px;
