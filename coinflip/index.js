@@ -55,23 +55,25 @@ const shownResults = new Set();
 // ── Session ────────────────────────────────────────────────────────────────
 function getUsername() { return sessionStorage.getItem("bw_username") ?? null; }
 
-// ── Wait for Firestore network ─────────────────────────────────────────────
-// Firestore SDK goes offline briefly on init. This resolves once it's ready.
+// ── Wait for Firestore to be genuinely online ──────────────────────────────
+// enableNetwork() resolves too early. Instead we watch the special __online__
+// sentinel doc — the first snapshot (hit or miss) confirms the SDK has a
+// working WebSocket. We bail after 8 s so boot never hangs forever.
 function waitForFirestore() {
   return new Promise(resolve => {
-    // enableNetwork re-establishes the connection and resolves when online
-    db.enableNetwork().then(resolve).catch(resolve); // catch so we don't hang
+    const timer = setTimeout(resolve, 8000); // hard bail-out
+    const unsub = db.collection("__heartbeat__").limit(1)
+      .onSnapshot(
+        () => { clearTimeout(timer); unsub(); resolve(); },
+        ()  => { clearTimeout(timer); unsub(); resolve(); } // error also means connected (rules denied)
+      );
   });
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 async function boot() {
-  // Wait for Firestore to be online BEFORE any .get() calls
   await waitForFirestore();
-
-  // Load values (REST) and inventory (REST + Firestore) in parallel now that it's safe
   await Promise.all([loadValues(), loadInventory()]);
-
   listenGames();
   listenCompletedGames();
   startChat();
