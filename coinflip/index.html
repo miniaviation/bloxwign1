@@ -48,6 +48,7 @@
     </div>
 
     <div class="content-area">
+      <!-- Games list -->
       <div class="coinflip-panel">
         <div class="games-header">
           <span class="games-title">Active Games</span>
@@ -71,6 +72,8 @@
           </div>
         </div>
       </div>
+
+      <!-- Chat panel injected by JS -->
     </div>
   </div>
 
@@ -93,7 +96,9 @@
 
       <div class="modal-section-label">Select items from your inventory</div>
       <div class="modal-search">
-        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
         <input type="text" id="createSearch" placeholder="Search…" oninput="filterCreateGrid()" />
       </div>
       <div class="inv-grid" id="createInvGrid">
@@ -113,12 +118,24 @@
       <button class="modal-close" onclick="closeJoinModal()">✕</button>
       <div class="modal-title">Join Coinflip</div>
 
+      <!-- Creator preview -->
       <div class="creator-preview" id="joinCreatorPreview"></div>
+
+      <!-- Expandable creator items list -->
+      <div class="join-creator-items-section">
+        <div class="join-creator-items-toggle" onclick="toggleCreatorItems()">
+          ▸ View creator's items
+        </div>
+        <div class="join-creator-items-list" id="joinCreatorItemsList"></div>
+      </div>
+
       <div class="join-range-pill" id="joinRangePill"></div>
 
       <div class="modal-section-label" style="margin-top:14px;">Your items to wager</div>
       <div class="modal-search">
-        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
         <input type="text" id="joinSearch" placeholder="Search…" oninput="filterJoinGrid()" />
       </div>
       <div class="inv-grid" id="joinInvGrid">
@@ -153,6 +170,15 @@
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script>
+    // Toggle creator items list in join modal
+    function toggleCreatorItems() {
+      const list   = document.getElementById('joinCreatorItemsList');
+      const toggle = document.querySelector('.join-creator-items-toggle');
+      const open   = list.classList.toggle('open');
+      toggle.textContent = (open ? '▾' : '▸') + ' View creator\'s items';
+    }
+  </script>
   <script src="/coinflip/index.js"></script>
 </body>
 </html>
