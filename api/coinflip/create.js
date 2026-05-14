@@ -21,11 +21,14 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST")   return res.status(405).json({ error: "Method not allowed" });
 
-  const { username, items } = req.body ?? {};
+  const { username, items, side } = req.body ?? {};
 
   if (!username || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "Missing username or items" });
   }
+
+  // Validate side — default to "heads" if not provided or invalid
+  const creatorSide = side === "tails" ? "tails" : "heads";
 
   try {
     // ── 1. Check user doesn't already have a waiting game ───────────────────
@@ -63,11 +66,12 @@ export default async function handler(req, res) {
       creatorUsername : username,
       creatorItems    : items,
       creatorValue    : totalValue,
+      creatorSide,                  // ← "heads" or "tails"
       status          : "waiting",
       createdAt       : admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    return res.status(200).json({ success: true, gameId: gameRef.id });
+    return res.status(200).json({ success: true, gameId: gameRef.id, creatorSide });
   } catch (err) {
     console.error("[Coinflip] create error:", err);
     return res.status(500).json({ error: "Server error", details: err.message });

@@ -38,6 +38,7 @@ let activeFilter  = "all";
 
 let createSelected  = new Set();
 let createGridItems = [];
+let createSide      = "heads"; // "heads" or "tails" — creator's chosen side
 
 let joiningGame   = null;
 let joinSelected  = new Set();
@@ -187,6 +188,7 @@ function handleCompletedGame(doc) {
     me,
     creatorChance  : game.creatorChance,
     joinerChance   : game.joinerChance,
+    creatorSide    : game.creatorSide ?? "heads",
   });
 
   // Also refresh inventory so won/lost items update
@@ -261,6 +263,7 @@ function renderGames() {
         <div class="gc-name">${escHtml(game.creatorUsername ?? "?")}</div>
         <div class="gc-meta"><span class="waiting-dot"></span>Waiting for opponent
           &nbsp;·&nbsp; Range: ${fmtVal(min)} – ${fmtVal(max)}
+          &nbsp;·&nbsp; <span class="side-badge">${game.creatorSide === "tails" ? "🌑 Tails" : "☀️ Heads"}</span>
         </div>
       </div>
       <div class="gc-items">${thumbsHtml}</div>
@@ -309,10 +312,13 @@ function openCreateModal() {
   if (!username) { alert("You must be logged in to create a game."); return; }
 
   createSelected = new Set();
+  createSide     = "heads";
   document.getElementById("createSearch").value = "";
   document.getElementById("createTotalDisplay").textContent = "BW$ 0.00";
   document.getElementById("createRangeDisplay").textContent = "—";
   document.getElementById("createConfirmBtn").disabled = true;
+  // Reset side picker UI
+  document.querySelectorAll(".side-btn").forEach(b => b.classList.toggle("active", b.dataset.side === "heads"));
 
   createGridItems = myItems.filter(item => !item._locked);
   renderCreateGrid(createGridItems);
@@ -378,6 +384,11 @@ function updateCreateSummary(items) {
   }
 }
 
+function selectSide(side) {
+  createSide = side;
+  document.querySelectorAll(".side-btn").forEach(b => b.classList.toggle("active", b.dataset.side === side));
+}
+
 async function confirmCreate() {
   const username = getUsername();
   if (!username) return;
@@ -397,7 +408,7 @@ async function confirmCreate() {
     const res  = await fetch("/api/coinflip/create", {
       method : "POST",
       headers: { "Content-Type": "application/json" },
-      body   : JSON.stringify({ username, items }),
+      body   : JSON.stringify({ username, items, side: createSide }),
     });
     const data = await res.json();
 
@@ -580,6 +591,7 @@ async function confirmJoin() {
       me             : username,
       creatorChance  : data.creatorChance,
       joinerChance   : data.joinerChance,
+      creatorSide    : joiningGame.creatorSide ?? "heads",
     };
 
     // Mark this game so the Firestore listener doesn't double-show it
@@ -596,27 +608,36 @@ async function confirmJoin() {
 }
 
 // ── Flip Animation ─────────────────────────────────────────────────────────
-function showFlipAnimation({ creatorUsername, creatorValue, joinerUsername, joinerValue, winner, me, creatorChance, joinerChance }) {
+function showFlipAnimation({ creatorUsername, creatorValue, joinerUsername, joinerValue, winner, me, creatorChance, joinerChance, creatorSide }) {
   const overlay = document.getElementById("flipOverlay");
   const coin    = document.getElementById("flipCoin");
   const result  = document.getElementById("flipResult");
   const players = document.getElementById("flipPlayers");
 
+  // Creator picks heads/tails; joiner gets the other side
+  const creatorFace = creatorSide === "tails" ? "tails" : "heads";
+  const joinerFace  = creatorFace === "heads"  ? "tails" : "heads";
+  const winnerFace  = winner === creatorUsername ? creatorFace : joinerFace;
+
   const totalPot = creatorValue + joinerValue;
   const ci = creatorUsername.slice(0, 2).toUpperCase();
   const ji = joinerUsername.slice(0, 2).toUpperCase();
 
+  const isCreatorWinner = winner === creatorUsername;
+
   players.innerHTML = `
-    <div class="fp-side">
+    <div class="fp-side ${isCreatorWinner ? "fp-winner" : ""}">
       <div class="fp-avatar creator">${ci}</div>
       <div class="fp-name">${escHtml(creatorUsername)}</div>
+      <div class="fp-face-badge">${creatorFace === "heads" ? "☀️ Heads" : "🌑 Tails"}</div>
       <div class="fp-value">${fmtVal(creatorValue)}</div>
       <div class="fp-chance">${creatorChance ?? Math.round((creatorValue/totalPot)*1000)/10}% chance</div>
     </div>
     <div class="fp-vs">VS</div>
-    <div class="fp-side">
+    <div class="fp-side ${!isCreatorWinner ? "fp-winner" : ""}">
       <div class="fp-avatar joiner">${ji}</div>
       <div class="fp-name">${escHtml(joinerUsername)}</div>
+      <div class="fp-face-badge">${joinerFace === "heads" ? "☀️ Heads" : "🌑 Tails"}</div>
       <div class="fp-value">${fmtVal(joinerValue)}</div>
       <div class="fp-chance">${joinerChance ?? Math.round((joinerValue/totalPot)*1000)/10}% chance</div>
     </div>
@@ -624,25 +645,34 @@ function showFlipAnimation({ creatorUsername, creatorValue, joinerUsername, join
 
   result.innerHTML = "";
   coin.className   = "flip-coin";
-  coin.textContent = "🪙";
+  // Show both faces on coin
+  coin.innerHTML = `
+    <div class="coin-face coin-heads">☀️</div>
+    <div class="coin-face coin-tails">🌑</div>
+  `;
   overlay.classList.add("active");
 
   setTimeout(() => coin.classList.add("spinning"), 300);
 
   setTimeout(() => {
+    // Show winning face on coin
+    coin.classList.remove("spinning");
+    coin.classList.add(winnerFace === "heads" ? "show-heads" : "show-tails");
+
     const didWin = winner === me;
     result.innerHTML = `
       <div class="flip-result-title ${didWin ? "win" : "lose"}">
         ${didWin ? "🏆 You Won!" : "💀 You Lost"}
       </div>
       <div class="flip-result-sub">
+        ${winnerFace === "heads" ? "☀️ Heads" : "🌑 Tails"} won &mdash;
         ${didWin
-          ? `${escHtml(winner)} won ${fmtVal(totalPot)} in items!`
-          : `${escHtml(winner)} won the flip.`}
+          ? `you take ${fmtVal(totalPot)} in items!`
+          : `${escHtml(winner)} takes the pot.`}
       </div>
       <button class="flip-result-close" onclick="closeFlip()">Close</button>
     `;
-  }, 2600);
+  }, 2800);
 }
 
 function closeFlip() {

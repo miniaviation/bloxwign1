@@ -116,7 +116,20 @@
         </div>
       </div>
 
-      <div class="modal-section-label">Select items from your inventory</div>
+      <!-- Heads / Tails picker -->
+      <div class="modal-section-label">Choose your side</div>
+      <div class="side-picker">
+        <button class="side-btn active" data-side="heads" onclick="selectSide('heads')">
+          <span class="side-icon">☀️</span>
+          <span class="side-label">Heads</span>
+        </button>
+        <button class="side-btn" data-side="tails" onclick="selectSide('tails')">
+          <span class="side-icon">🌑</span>
+          <span class="side-label">Tails</span>
+        </button>
+      </div>
+
+      <div class="modal-section-label" style="margin-top:16px;">Select items from your inventory</div>
       <div class="modal-search">
         <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
