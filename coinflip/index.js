@@ -1,4 +1,4 @@
-// coinflip/index.js  — full rewrite using backend APIs + Firestore real-time
+// coinflip/index.js
 
 // ── Firebase config ────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -36,18 +36,21 @@ let myItems       = [];
 let allGames      = [];
 let activeFilter  = "all";
 
-let createSelected = new Set();
+let createSelected  = new Set();
 let createGridItems = [];
 
-let joiningGame    = null;
-let joinSelected   = new Set();
-let joinGridItems  = [];
+let joiningGame   = null;
+let joinSelected  = new Set();
+let joinGridItems = [];
 
 // ── Chat state ─────────────────────────────────────────────────────────────
-let chatMessages    = [];
-let lastChatTs      = 0;
-let chatPollTimer   = null;
+let chatMessages      = [];
+let lastChatTs        = 0;
+let chatPollTimer     = null;
 let presencePingTimer = null;
+
+// ── FIX 3: track which completed game IDs we've already shown ─────────────
+const shownResults = new Set();
 
 // ── Session ────────────────────────────────────────────────────────────────
 function getUsername() { return sessionStorage.getItem("bw_username") ?? null; }
@@ -56,8 +59,8 @@ function getUsername() { return sessionStorage.getItem("bw_username") ?? null; }
 async function boot() {
   await Promise.all([loadValues(), loadInventory()]);
   listenGames();
-  startChat();
-  buildChatPanel();
+  listenCompletedGames(); // FIX 3: watch for results in real-time
+  startChat();             // FIX 2: chat panel is already in DOM; just start polling
 }
 
 // ── Values ─────────────────────────────────────────────────────────────────
@@ -80,7 +83,6 @@ async function loadInventory() {
     const data = await res.json();
     myItems = data.items ?? [];
 
-    // Fetch user's locked items and mark them
     const lockSnap = await db.collection("locked_items").doc(u).get();
     const lockedSet = new Set(lockSnap.exists ? (lockSnap.data().items ?? []) : []);
     myItems = myItems.map(item => ({ ...item, _locked: lockedSet.has(item.name) }));
@@ -99,6 +101,69 @@ function listenGames() {
       allGames = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       renderGames();
     }, err => console.error("[CF] Firestore:", err));
+}
+
+// ── FIX 3: Firestore listener for completed games involving this user ───────
+// This fires for BOTH the creator (who is waiting on page) and the joiner
+// (who just joined — but we also call showFlipAnimation directly there).
+// Using a short window (last 30 s) avoids showing old results on load.
+function listenCompletedGames() {
+  const me = getUsername();
+  if (!me) return;
+
+  // We need two queries: games where user is creator, and games where user is joiner.
+  // Firestore doesn't support OR across fields in one query, so we use two listeners.
+  const cutoff = firebase.firestore.Timestamp.fromMillis(Date.now() - 30_000);
+
+  // Creator listener
+  db.collection("coinflip_games")
+    .where("status",          "==", "completed")
+    .where("creatorUsername", "==", me)
+    .where("completedAt",     ">",  cutoff)
+    .onSnapshot(snap => {
+      snap.docChanges().forEach(change => {
+        if (change.type === "added") handleCompletedGame(change.doc);
+      });
+    }, err => console.warn("[CF] completed-creator listener:", err));
+
+  // Joiner listener
+  db.collection("coinflip_games")
+    .where("status",         "==", "completed")
+    .where("joinerUsername", "==", me)
+    .where("completedAt",    ">",  cutoff)
+    .onSnapshot(snap => {
+      snap.docChanges().forEach(change => {
+        if (change.type === "added") handleCompletedGame(change.doc);
+      });
+    }, err => console.warn("[CF] completed-joiner listener:", err));
+}
+
+function handleCompletedGame(doc) {
+  const me = getUsername();
+  if (!me) return;
+
+  // Don't show the same result twice (e.g. the joiner already sees it inline)
+  if (shownResults.has(doc.id)) return;
+  shownResults.add(doc.id);
+
+  const game = doc.data();
+
+  // If the flip overlay is already showing (joiner path), skip
+  if (document.getElementById("flipOverlay").classList.contains("active")) return;
+
+  showFlipAnimation({
+    creatorUsername: game.creatorUsername,
+    creatorValue   : game.creatorValue,
+    joinerUsername : game.joinerUsername,
+    joinerValue    : game.joinerValue,
+    winner         : game.winner,
+    me,
+    creatorChance  : game.creatorChance,
+    joinerChance   : game.joinerChance,
+  });
+
+  // Also refresh inventory so won/lost items update
+  loadInventory();
 }
 
 // ── Filter ─────────────────────────────────────────────────────────────────
@@ -205,7 +270,7 @@ async function cancelGame(gameId) {
     });
     const data = await res.json();
     if (!data.success) alert(data.error ?? "Failed to cancel.");
-    else await loadInventory(); // refresh locked state
+    else await loadInventory();
   } catch (e) {
     alert("Network error cancelling game.");
   }
@@ -316,7 +381,6 @@ async function confirmCreate() {
       return;
     }
 
-    // Re-load inventory so locked items are marked
     await loadInventory();
     closeCreateModal();
   } catch (e) {
@@ -345,14 +409,12 @@ function openJoinModal(gameId) {
   const creatorItems  = joiningGame.creatorItems ?? [];
   const initials      = (joiningGame.creatorUsername ?? "?").slice(0, 2).toUpperCase();
 
-  // Creator's item thumbnails
   let thumbsHtml = creatorItems.slice(0, 8).map(item => `
     <div class="cp-thumb" title="${escHtml(item.name)}">
       <img src="${escHtml(itemImg(item.name))}" alt="${escHtml(item.name)}"
            onerror="this.style.display='none'" />
     </div>`).join("");
 
-  // Creator items list below avatar
   let creatorItemsList = creatorItems.map(item => `
     <div class="join-creator-item">
       <div class="jci-thumb">
@@ -373,7 +435,6 @@ function openJoinModal(gameId) {
     <div class="cp-value">${fmtVal(joiningGame.creatorValue)}</div>
   `;
 
-  // Expandable creator items list
   const existingList = document.getElementById("joinCreatorItemsList");
   if (existingList) existingList.innerHTML = creatorItemsList;
 
@@ -494,7 +555,10 @@ async function confirmJoin() {
       joinerChance   : data.joinerChance,
     };
 
-    await loadInventory(); // refresh locked state
+    // Mark this game so the Firestore listener doesn't double-show it
+    if (joiningGame.id) shownResults.add(joiningGame.id);
+
+    await loadInventory();
     closeJoinModal();
     showFlipAnimation(snapshot);
   } catch (e) {
@@ -559,27 +623,8 @@ function closeFlip() {
 }
 
 // ── Chat ───────────────────────────────────────────────────────────────────
-function buildChatPanel() {
-  // Inject the chat panel HTML into the DOM
-  const panel = document.createElement("div");
-  panel.id = "chatPanel";
-  panel.className = "chat-panel";
-  panel.innerHTML = `
-    <div class="chat-header">
-      <span class="chat-title">Lobby Chat</span>
-      <span class="chat-online" id="chatOnline">
-        <span class="online-dot"></span><span id="onlineCount">0</span> online
-      </span>
-    </div>
-    <div class="chat-messages" id="chatMessages"></div>
-    <div class="chat-input-row">
-      <input type="text" id="chatInput" class="chat-input" placeholder="Say something…" maxlength="200"
-             onkeydown="if(event.key==='Enter')sendChat()" />
-      <button class="chat-send-btn" onclick="sendChat()">↑</button>
-    </div>
-  `;
-  document.querySelector(".content-area").appendChild(panel);
-}
+// FIX 2: buildChatPanel() removed — the chat panel lives in index.html now.
+// startChat() just begins polling against the already-present DOM elements.
 
 async function startChat() {
   await fetchChat();
@@ -594,11 +639,9 @@ async function fetchChat() {
     const res  = await fetch(url);
     const data = await res.json();
 
-    // Update online count
     const oc = document.getElementById("onlineCount");
     if (oc) oc.textContent = data.onlineCount ?? 0;
 
-    // Append new messages
     const newMsgs = (data.messages ?? []).filter(m => m.ts > lastChatTs);
     if (newMsgs.length > 0) {
       const container = document.getElementById("chatMessages");
@@ -620,7 +663,6 @@ async function fetchChat() {
         }
       });
 
-      // Keep max 200 messages in DOM
       if (container && container.children.length > 200) {
         while (container.children.length > 200) container.removeChild(container.firstChild);
       }
@@ -652,7 +694,6 @@ async function sendChat() {
       headers: { "Content-Type": "application/json" },
       body   : JSON.stringify({ username, message: msg }),
     });
-    // fetchChat will pick up the new message on next poll (or we can call now)
     await fetchChat();
   } catch (e) {
     alert("Failed to send message.");
