@@ -72,11 +72,14 @@ function waitForFirestore() {
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 async function boot() {
-  await waitForFirestore();
-  await Promise.all([loadValues(), loadInventory()]);
+  // Start games listener immediately — doesn't need inventory or values
   listenGames();
   listenCompletedGames();
   startChat();
+
+  // Load values + inventory in background (non-blocking for games display)
+  await waitForFirestore();
+  await Promise.all([loadValues(), loadInventory()]);
 }
 
 // ── Values ─────────────────────────────────────────────────────────────────
@@ -93,27 +96,26 @@ async function loadInventory() {
   const u = getUsername();
   if (!u) { myItems = []; return; }
 
-  // Step 1: fetch inventory via REST
+  // Fetch inventory + locked state together via backend (avoids client Firestore offline race)
   try {
-    const res  = await fetch(`/api/inventory?username=${encodeURIComponent(u)}`, {
-      signal: AbortSignal.timeout(12000),
-    });
-    const data = await res.json();
-    myItems = data.items ?? [];
-  } catch (e) {
-    console.warn("[CF] inventory fetch:", e.message);
-    myItems = [];
-    return;
-  }
+    const [invRes, lockRes] = await Promise.all([
+      fetch(`/api/inventory?username=${encodeURIComponent(u)}`, { signal: AbortSignal.timeout(12000) }),
+      fetch(`/api/coinflip/locked?username=${encodeURIComponent(u)}`, { signal: AbortSignal.timeout(8000) }),
+    ]);
 
-  // Step 2: fetch lock state — failure just means nothing is locked
-  try {
-    const lockSnap = await db.collection("locked_items").doc(u).get();
-    const lockedSet = new Set(lockSnap.exists ? (lockSnap.data().items ?? []) : []);
-    myItems = myItems.map(item => ({ ...item, _locked: lockedSet.has(item.name) }));
+    const invData  = await invRes.json();
+    const lockData = lockRes.ok ? await lockRes.json() : { items: [] };
+
+    const lockedSet = new Set(lockData.items ?? []);
+    myItems = (invData.items ?? []).map(item => ({ ...item, _locked: lockedSet.has(item.name) }));
   } catch (e) {
-    console.warn("[CF] locked_items:", e.message);
-    myItems = myItems.map(item => ({ ...item, _locked: false }));
+    console.warn("[CF] inventory:", e.message);
+    // Try inventory alone as fallback
+    try {
+      const res  = await fetch(`/api/inventory?username=${encodeURIComponent(u)}`, { signal: AbortSignal.timeout(12000) });
+      const data = await res.json();
+      myItems = (data.items ?? []).map(item => ({ ...item, _locked: false }));
+    } catch { myItems = []; }
   }
 }
 
