@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BetWing - Coinflip</title>
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+
+  <!-- ─── SIDEBAR ─── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">BetWing</div>
+    <nav class="sidebar-nav">
+      <a class="nav-item" href="/inventory">
+        <div class="nav-item-left">
+          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+          </svg>
+          Inventory
+        </div>
+      </a>
+      <a class="nav-item active" href="/coinflip">
+        <div class="nav-item-left">
+          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+          Coinflip
+        </div>
+      </a>
+      <a class="nav-item" href="#" onclick="return false;">
+        <div class="nav-item-left">
+          <svg class="nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          </svg>
+          Jackpot
+        </div>
+        <span class="soon-badge">Soon</span>
+      </a>
+    </nav>
+  </aside>
+
+  <!-- ─── MAIN ─── -->
+  <div class="main">
+    <div class="topbar">
+      <span class="topbar-title">Coinflip</span>
+      <button class="btn-create" onclick="openCreateModal()">+ Create Game</button>
+    </div>
+
+    <div class="content-area">
+      <div class="coinflip-panel">
+        <div class="games-header">
+          <span class="games-title">Active Games</span>
+          <span class="games-count" id="gamesCount">0 games</span>
+        </div>
+
+        <div class="filter-row">
+          <span class="filter-label">Filter:</span>
+          <div class="pill active" onclick="setFilter(this,'all')">All</div>
+          <div class="pill" onclick="setFilter(this,'lt50')">&lt; 50</div>
+          <div class="pill" onclick="setFilter(this,'50-200')">50 – 200</div>
+          <div class="pill" onclick="setFilter(this,'200-1000')">200 – 1k</div>
+          <div class="pill" onclick="setFilter(this,'gt1000')">&gt; 1000</div>
+        </div>
+
+        <div class="games-list" id="gamesList">
+          <div class="empty-state" id="emptyState">
+            <div class="empty-icon">🪙</div>
+            <div class="empty-text">No active games</div>
+            <div class="empty-sub">Be the first to create one!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── CREATE MODAL ─── -->
+  <div class="modal-overlay" id="createModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeCreateModal()">✕</button>
+      <div class="modal-title">Create Coinflip</div>
+
+      <div class="modal-info-box">
+        <div class="info-row">
+          <span class="info-label">Wager Value</span>
+          <span class="info-val green" id="createTotalDisplay">BW$ 0.00</span>
+        </div>
+        <div class="info-row" style="margin-top:6px;">
+          <span class="info-label">Joinable Range</span>
+          <span class="info-val" id="createRangeDisplay">—</span>
+        </div>
+      </div>
+
+      <div class="modal-section-label">Select items from your inventory</div>
+      <div class="modal-search">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="createSearch" placeholder="Search…" oninput="filterCreateGrid()" />
+      </div>
+      <div class="inv-grid" id="createInvGrid">
+        <div class="inv-loading">Loading inventory…</div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="closeCreateModal()">Cancel</button>
+        <button class="btn-confirm" id="createConfirmBtn" onclick="confirmCreate()" disabled>Create Game</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── JOIN MODAL ─── -->
+  <div class="modal-overlay" id="joinModal">
+    <div class="modal modal-wide">
+      <button class="modal-close" onclick="closeJoinModal()">✕</button>
+      <div class="modal-title">Join Coinflip</div>
+
+      <div class="creator-preview" id="joinCreatorPreview"></div>
+      <div class="join-range-pill" id="joinRangePill"></div>
+
+      <div class="modal-section-label" style="margin-top:14px;">Your items to wager</div>
+      <div class="modal-search">
+        <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="joinSearch" placeholder="Search…" oninput="filterJoinGrid()" />
+      </div>
+      <div class="inv-grid" id="joinInvGrid">
+        <div class="inv-loading">Loading inventory…</div>
+      </div>
+
+      <div class="modal-info-box" style="margin-top:10px;">
+        <div class="info-row">
+          <span class="info-label">Your Wager</span>
+          <span class="info-val green" id="joinTotalDisplay">BW$ 0.00</span>
+          <span class="range-status" id="joinRangeStatus"></span>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="closeJoinModal()">Cancel</button>
+        <button class="btn-confirm" id="joinConfirmBtn" onclick="confirmJoin()" disabled>Join Game</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── FLIP ANIMATION OVERLAY ─── -->
+  <div class="flip-overlay" id="flipOverlay">
+    <div class="flip-box">
+      <div class="flip-players" id="flipPlayers"></div>
+      <div class="flip-coin-wrap">
+        <div class="flip-coin" id="flipCoin"></div>
+      </div>
+      <div class="flip-result" id="flipResult"></div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="index.js"></script>
+</body>
+</html>
