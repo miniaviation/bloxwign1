@@ -55,12 +55,26 @@ const shownResults = new Set();
 // ── Session ────────────────────────────────────────────────────────────────
 function getUsername() { return sessionStorage.getItem("bw_username") ?? null; }
 
+// ── Wait for Firestore network ─────────────────────────────────────────────
+// Firestore SDK goes offline briefly on init. This resolves once it's ready.
+function waitForFirestore() {
+  return new Promise(resolve => {
+    // enableNetwork re-establishes the connection and resolves when online
+    db.enableNetwork().then(resolve).catch(resolve); // catch so we don't hang
+  });
+}
+
 // ── Boot ───────────────────────────────────────────────────────────────────
 async function boot() {
+  // Wait for Firestore to be online BEFORE any .get() calls
+  await waitForFirestore();
+
+  // Load values (REST) and inventory (REST + Firestore) in parallel now that it's safe
   await Promise.all([loadValues(), loadInventory()]);
+
   listenGames();
-  listenCompletedGames(); // FIX 3: watch for results in real-time
-  startChat();             // FIX 2: chat panel is already in DOM; just start polling
+  listenCompletedGames();
+  startChat();
 }
 
 // ── Values ─────────────────────────────────────────────────────────────────
@@ -76,19 +90,28 @@ async function loadValues() {
 async function loadInventory() {
   const u = getUsername();
   if (!u) { myItems = []; return; }
+
+  // Step 1: fetch inventory via REST
   try {
     const res  = await fetch(`/api/inventory?username=${encodeURIComponent(u)}`, {
       signal: AbortSignal.timeout(12000),
     });
     const data = await res.json();
     myItems = data.items ?? [];
+  } catch (e) {
+    console.warn("[CF] inventory fetch:", e.message);
+    myItems = [];
+    return;
+  }
 
+  // Step 2: fetch lock state — failure just means nothing is locked
+  try {
     const lockSnap = await db.collection("locked_items").doc(u).get();
     const lockedSet = new Set(lockSnap.exists ? (lockSnap.data().items ?? []) : []);
     myItems = myItems.map(item => ({ ...item, _locked: lockedSet.has(item.name) }));
   } catch (e) {
-    console.warn("[CF] inventory:", e.message);
-    myItems = [];
+    console.warn("[CF] locked_items:", e.message);
+    myItems = myItems.map(item => ({ ...item, _locked: false }));
   }
 }
 
