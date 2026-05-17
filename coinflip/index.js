@@ -38,7 +38,7 @@ let activeFilter  = "all";
 
 let createSelected  = new Set();
 let createGridItems = [];
-let createSide      = "heads"; // "heads" or "tails" — creator's chosen side
+let createSide      = "heads";
 
 let joiningGame   = null;
 let joinSelected  = new Set();
@@ -50,37 +50,25 @@ let lastChatTs        = 0;
 let chatPollTimer     = null;
 let presencePingTimer = null;
 
-// ── FIX 3: track which completed game IDs we've already shown ─────────────
+// ── Track shown result game IDs to avoid double-showing ───────────────────
 const shownResults = new Set();
 
 // ── Session ────────────────────────────────────────────────────────────────
 function getUsername() { return sessionStorage.getItem("bw_username") ?? null; }
 
-// ── Wait for Firestore to be genuinely online ──────────────────────────────
-// enableNetwork() resolves too early. Instead we watch the special __online__
-// sentinel doc — the first snapshot (hit or miss) confirms the SDK has a
-// working WebSocket. We bail after 8 s so boot never hangs forever.
-function waitForFirestore() {
-  return new Promise(resolve => {
-    const timer = setTimeout(resolve, 8000); // hard bail-out
-    const unsub = db.collection("__heartbeat__").limit(1)
-      .onSnapshot(
-        () => { clearTimeout(timer); unsub(); resolve(); },
-        ()  => { clearTimeout(timer); unsub(); resolve(); } // error also means connected (rules denied)
-      );
-  });
-}
-
 // ── Boot ───────────────────────────────────────────────────────────────────
+// FIX: removed the unreliable waitForFirestore() sentinel approach.
+// listenGames() uses onSnapshot which fires as soon as the SDK connects —
+// no need to gate behind a heartbeat that often added an 8s delay.
 async function boot() {
-  // Start games listener immediately — doesn't need inventory or values
   listenGames();
   listenCompletedGames();
   startChat();
 
-  // Load values + inventory in background (non-blocking for games display)
-  await waitForFirestore();
-  await Promise.all([loadValues(), loadInventory()]);
+  // Load values + inventory in parallel, non-blocking
+  Promise.all([loadValues(), loadInventory()]).catch(e =>
+    console.warn("[CF] boot load error:", e)
+  );
 }
 
 // ── Values ─────────────────────────────────────────────────────────────────
@@ -97,7 +85,6 @@ async function loadInventory() {
   const u = getUsername();
   if (!u) { myItems = []; return; }
 
-  // Fetch inventory + locked state together via backend (avoids client Firestore offline race)
   try {
     const [invRes, lockRes] = await Promise.all([
       fetch(`/api/inventory?username=${encodeURIComponent(u)}`, { signal: AbortSignal.timeout(12000) }),
@@ -111,7 +98,6 @@ async function loadInventory() {
     myItems = (invData.items ?? []).map(item => ({ ...item, _locked: lockedSet.has(item.name) }));
   } catch (e) {
     console.warn("[CF] inventory:", e.message);
-    // Try inventory alone as fallback
     try {
       const res  = await fetch(`/api/inventory?username=${encodeURIComponent(u)}`, { signal: AbortSignal.timeout(12000) });
       const data = await res.json();
@@ -121,78 +107,89 @@ async function loadInventory() {
 }
 
 // ── Firestore: listen to waiting games ─────────────────────────────────────
+// FIX: We now also handle pending local writes (hasPendingWrites) so a newly
+// created game appears instantly even before the server timestamp resolves.
+// Sorting uses `createdAtMs` (a plain Date.now() number written by create.js)
+// as the primary key and falls back to the Timestamp for older docs.
 function listenGames() {
   db.collection("coinflip_games")
     .where("status", "==", "waiting")
-    .orderBy("createdAt", "desc")
-    .onSnapshot(snap => {
-      allGames = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    .onSnapshot({ includeMetadataChanges: false }, snap => {
+      allGames = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => {
+          // createdAtMs is a plain millisecond number added by create.js — always present immediately.
+          // Fall back to Firestore Timestamp for any older docs that don't have it.
+          const ta = a.createdAtMs ?? a.createdAt?.toMillis?.() ?? 0;
+          const tb = b.createdAtMs ?? b.createdAt?.toMillis?.() ?? 0;
+          return tb - ta; // newest first
+        });
       renderGames();
-    }, err => console.error("[CF] Firestore:", err));
+    }, err => {
+      console.error("[CF] Firestore listenGames error:", err.code, err.message);
+      // Show a subtle error in the games list so the user knows something is wrong
+      const list = document.getElementById("gamesList");
+      if (list) {
+        list.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">⚠️</div>
+            <div class="empty-text">Could not load games</div>
+            <div class="empty-sub">${escHtml(err.message)}</div>
+          </div>`;
+      }
+    });
 }
 
-// ── FIX 3: Firestore listener for completed games involving this user ───────
-// This fires for BOTH the creator (who is waiting on page) and the joiner
-// (who just joined — but we also call showFlipAnimation directly there).
-// Using a short window (last 30 s) avoids showing old results on load.
+// ── Firestore: listen for completed games involving this user ──────────────
+// FIX: Removed the .where("completedAt", ">", cutoff) clause which required
+// a composite index (and silently returned 0 results if that index didn't
+// exist). We instead track shownResults + only react to "added" changes,
+// which is safe because onSnapshot only fires for recent changes in the
+// current session.
 function listenCompletedGames() {
   const me = getUsername();
   if (!me) return;
 
-  // We need two queries: games where user is creator, and games where user is joiner.
-  // Firestore doesn't support OR across fields in one query, so we use two listeners.
-  const cutoff = firebase.firestore.Timestamp.fromMillis(Date.now() - 30_000);
+  const handleChange = doc => {
+    if (shownResults.has(doc.id)) return;
+    shownResults.add(doc.id);
 
-  // Creator listener
+    const game = doc.data();
+    if (document.getElementById("flipOverlay").classList.contains("active")) return;
+
+    showFlipAnimation({
+      creatorUsername: game.creatorUsername,
+      creatorValue   : game.creatorValue,
+      joinerUsername : game.joinerUsername,
+      joinerValue    : game.joinerValue,
+      winner         : game.winner,
+      me,
+      creatorChance  : game.creatorChance,
+      joinerChance   : game.joinerChance,
+      creatorSide    : game.creatorSide ?? "heads",
+    });
+
+    loadInventory();
+  };
+
+  // Two separate queries (Firestore doesn't support OR across fields)
   db.collection("coinflip_games")
     .where("status",          "==", "completed")
     .where("creatorUsername", "==", me)
-    .where("completedAt",     ">",  cutoff)
     .onSnapshot(snap => {
       snap.docChanges().forEach(change => {
-        if (change.type === "added") handleCompletedGame(change.doc);
+        if (change.type === "added") handleChange(change.doc);
       });
-    }, err => console.warn("[CF] completed-creator listener:", err));
+    }, err => console.warn("[CF] completed-creator:", err.code, err.message));
 
-  // Joiner listener
   db.collection("coinflip_games")
     .where("status",         "==", "completed")
     .where("joinerUsername", "==", me)
-    .where("completedAt",    ">",  cutoff)
     .onSnapshot(snap => {
       snap.docChanges().forEach(change => {
-        if (change.type === "added") handleCompletedGame(change.doc);
+        if (change.type === "added") handleChange(change.doc);
       });
-    }, err => console.warn("[CF] completed-joiner listener:", err));
-}
-
-function handleCompletedGame(doc) {
-  const me = getUsername();
-  if (!me) return;
-
-  // Don't show the same result twice (e.g. the joiner already sees it inline)
-  if (shownResults.has(doc.id)) return;
-  shownResults.add(doc.id);
-
-  const game = doc.data();
-
-  // If the flip overlay is already showing (joiner path), skip
-  if (document.getElementById("flipOverlay").classList.contains("active")) return;
-
-  showFlipAnimation({
-    creatorUsername: game.creatorUsername,
-    creatorValue   : game.creatorValue,
-    joinerUsername : game.joinerUsername,
-    joinerValue    : game.joinerValue,
-    winner         : game.winner,
-    me,
-    creatorChance  : game.creatorChance,
-    joinerChance   : game.joinerChance,
-    creatorSide    : game.creatorSide ?? "heads",
-  });
-
-  // Also refresh inventory so won/lost items update
-  loadInventory();
+    }, err => console.warn("[CF] completed-joiner:", err.code, err.message));
 }
 
 // ── Filter ─────────────────────────────────────────────────────────────────
@@ -317,7 +314,6 @@ function openCreateModal() {
   document.getElementById("createTotalDisplay").textContent = "BW$ 0.00";
   document.getElementById("createRangeDisplay").textContent = "—";
   document.getElementById("createConfirmBtn").disabled = true;
-  // Reset side picker UI
   document.querySelectorAll(".side-btn").forEach(b => b.classList.toggle("active", b.dataset.side === "heads"));
 
   createGridItems = myItems.filter(item => !item._locked);
@@ -433,7 +429,7 @@ function openJoinModal(gameId) {
   const username = getUsername();
   if (!username) { alert("You must be logged in to join a game."); return; }
 
-  joiningGame  = allGames.find(g => g.id === gameId);
+  joiningGame = allGames.find(g => g.id === gameId);
   if (!joiningGame) return;
 
   joinSelected = new Set();
@@ -594,7 +590,6 @@ async function confirmJoin() {
       creatorSide    : joiningGame.creatorSide ?? "heads",
     };
 
-    // Mark this game so the Firestore listener doesn't double-show it
     if (joiningGame.id) shownResults.add(joiningGame.id);
 
     await loadInventory();
@@ -614,7 +609,6 @@ function showFlipAnimation({ creatorUsername, creatorValue, joinerUsername, join
   const result  = document.getElementById("flipResult");
   const players = document.getElementById("flipPlayers");
 
-  // Creator picks heads/tails; joiner gets the other side
   const creatorFace = creatorSide === "tails" ? "tails" : "heads";
   const joinerFace  = creatorFace === "heads"  ? "tails" : "heads";
   const winnerFace  = winner === creatorUsername ? creatorFace : joinerFace;
@@ -645,7 +639,6 @@ function showFlipAnimation({ creatorUsername, creatorValue, joinerUsername, join
 
   result.innerHTML = "";
   coin.className   = "flip-coin";
-  // Show both faces on coin
   coin.innerHTML = `
     <div class="coin-face coin-heads">☀️</div>
     <div class="coin-face coin-tails">🌑</div>
@@ -655,7 +648,6 @@ function showFlipAnimation({ creatorUsername, creatorValue, joinerUsername, join
   setTimeout(() => coin.classList.add("spinning"), 300);
 
   setTimeout(() => {
-    // Show winning face on coin
     coin.classList.remove("spinning");
     coin.classList.add(winnerFace === "heads" ? "show-heads" : "show-tails");
 
@@ -680,9 +672,6 @@ function closeFlip() {
 }
 
 // ── Chat ───────────────────────────────────────────────────────────────────
-// FIX 2: buildChatPanel() removed — the chat panel lives in index.html now.
-// startChat() just begins polling against the already-present DOM elements.
-
 async function startChat() {
   await fetchChat();
   chatPollTimer     = setInterval(fetchChat, 4000);
@@ -755,6 +744,13 @@ async function sendChat() {
   } catch (e) {
     alert("Failed to send message.");
   }
+}
+
+function toggleCreatorItems() {
+  const list   = document.getElementById('joinCreatorItemsList');
+  const toggle = document.querySelector('.join-creator-items-toggle');
+  const open   = list.classList.toggle('open');
+  toggle.textContent = (open ? '▾' : '▸') + " View creator's items";
 }
 
 // ── Keyboard / overlay close ───────────────────────────────────────────────

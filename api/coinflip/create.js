@@ -27,7 +27,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing username or items" });
   }
 
-  // Validate side — default to "heads" if not provided or invalid
   const creatorSide = side === "tails" ? "tails" : "heads";
 
   try {
@@ -62,13 +61,21 @@ export default async function handler(req, res) {
 
     // ── 4. Create the game ─────────────────────────────────────────────────
     const totalValue = items.reduce((s, i) => s + (i.value ?? 0), 0);
+
+    // FIX: createdAtMs is a plain JS timestamp (number) written by the server.
+    // Unlike serverTimestamp(), it is immediately present in the Firestore
+    // document — no pending-write null phase — so the client's onSnapshot
+    // listener can sort by it right away and the game appears instantly.
+    const nowMs = Date.now();
+
     const gameRef = await db.collection("coinflip_games").add({
       creatorUsername : username,
       creatorItems    : items,
       creatorValue    : totalValue,
-      creatorSide,                  // ← "heads" or "tails"
+      creatorSide,
       status          : "waiting",
-      createdAt       : admin.firestore.FieldValue.serverTimestamp(),
+      createdAtMs     : nowMs,                                        // ← plain number, always present
+      createdAt       : admin.firestore.FieldValue.serverTimestamp(), // ← keep for display / TTL rules
     });
 
     return res.status(200).json({ success: true, gameId: gameRef.id, creatorSide });
