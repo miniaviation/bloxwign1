@@ -53,15 +53,16 @@ let presencePingTimer = null;
 // ── Track shown result game IDs to avoid double-showing ───────────────────
 const shownResults = new Set();
 
+// ── Poll timer handle ──────────────────────────────────────────────────────
+let pollTimer = null;
+
 // ── Session ────────────────────────────────────────────────────────────────
 function getUsername() { return sessionStorage.getItem("bw_username") ?? null; }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
-// FIX: removed the unreliable waitForFirestore() sentinel approach.
-// listenGames() uses onSnapshot which fires as soon as the SDK connects —
-// no need to gate behind a heartbeat that often added an 8s delay.
 async function boot() {
-  listenGames();
+  listenGames();           // Firestore realtime (fast when SDK connects)
+  pollGames();             // REST fallback — fires immediately, no SDK delay
   listenCompletedGames();
   startChat();
 
@@ -106,11 +107,36 @@ async function loadInventory() {
   }
 }
 
-// ── Firestore: listen to waiting games ─────────────────────────────────────
-// FIX: We now also handle pending local writes (hasPendingWrites) so a newly
-// created game appears instantly even before the server timestamp resolves.
-// Sorting uses `createdAtMs` (a plain Date.now() number written by create.js)
-// as the primary key and falls back to the Timestamp for older docs.
+// ── REST poll: hits /api/coinflip/games (server-side Admin SDK, no delay) ──
+// Fires immediately on boot so games appear before onSnapshot connects.
+// Continues polling every 5 s as a fallback if the realtime listener drops.
+async function pollGames() {
+  try {
+    const res  = await fetch("/api/coinflip/games");
+    const data = await res.json();
+
+    if (Array.isArray(data.games)) {
+      // Only replace local state if REST returned at least as many games —
+      // prevents a stale cached response from wiping a fresher onSnapshot update.
+      if (data.games.length >= allGames.length) {
+        allGames = data.games.sort((a, b) =>
+          (b.createdAtMs ?? 0) - (a.createdAtMs ?? 0)
+        );
+        renderGames();
+      }
+    }
+  } catch (e) {
+    console.warn("[CF] pollGames:", e.message);
+  }
+
+  // Schedule next poll — clears any previous timer first to avoid stacking
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(pollGames, 5000);
+}
+
+// ── Firestore: listen to waiting games (realtime layer) ────────────────────
+// onSnapshot fires sub-second when the SDK is connected.
+// If it errors or is slow, pollGames() above keeps the UI current.
 function listenGames() {
   db.collection("coinflip_games")
     .where("status", "==", "waiting")
@@ -118,8 +144,6 @@ function listenGames() {
       allGames = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => {
-          // createdAtMs is a plain millisecond number added by create.js — always present immediately.
-          // Fall back to Firestore Timestamp for any older docs that don't have it.
           const ta = a.createdAtMs ?? a.createdAt?.toMillis?.() ?? 0;
           const tb = b.createdAtMs ?? b.createdAt?.toMillis?.() ?? 0;
           return tb - ta; // newest first
@@ -127,25 +151,22 @@ function listenGames() {
       renderGames();
     }, err => {
       console.error("[CF] Firestore listenGames error:", err.code, err.message);
-      // Show a subtle error in the games list so the user knows something is wrong
-      const list = document.getElementById("gamesList");
-      if (list) {
-        list.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-icon">⚠️</div>
-            <div class="empty-text">Could not load games</div>
-            <div class="empty-sub">${escHtml(err.message)}</div>
-          </div>`;
+      // REST polling keeps things working — only show UI error if list is empty
+      if (allGames.length === 0) {
+        const list = document.getElementById("gamesList");
+        if (list) {
+          list.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">⚠️</div>
+              <div class="empty-text">Realtime connection lost</div>
+              <div class="empty-sub">Polling for updates…</div>
+            </div>`;
+        }
       }
     });
 }
 
 // ── Firestore: listen for completed games involving this user ──────────────
-// FIX: Removed the .where("completedAt", ">", cutoff) clause which required
-// a composite index (and silently returned 0 results if that index didn't
-// exist). We instead track shownResults + only react to "added" changes,
-// which is safe because onSnapshot only fires for recent changes in the
-// current session.
 function listenCompletedGames() {
   const me = getUsername();
   if (!me) return;
@@ -417,6 +438,10 @@ async function confirmCreate() {
 
     await loadInventory();
     closeCreateModal();
+
+    // Immediately poll so the new game appears without waiting for onSnapshot
+    clearTimeout(pollTimer);
+    pollGames();
   } catch (e) {
     alert("Network error. Please try again.");
     btn.disabled = false;
